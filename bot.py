@@ -1,9 +1,10 @@
 from flask import Flask, request
 from telegram import Update, LabeledPrice
 from telegram.ext import Application, CommandHandler, ContextTypes
+import os
 
-TOKEN = "8168014818:AAHXP4_MbBC-NZbVcRJWPePpAs9LQOFaodM"
-PAYMENT_PROVIDER = "381764678:TEST:123456"
+TOKEN = os.getenv("BOT_TOKEN")
+PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER_TOKEN")
 
 app = Flask(__name__)
 bot_app = Application.builder().token(TOKEN).build()
