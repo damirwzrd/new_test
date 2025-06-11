@@ -3,14 +3,17 @@ from telegram import Update, LabeledPrice
 from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
 import os
+import requests  # не забудь добавить в requirements.txt
 
+# Загружаем переменные окружения
 TOKEN = os.getenv("BOT_TOKEN")
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER_TOKEN")
-WEBHOOK_HOST = os.getenv("WEBHOOK_URL", "https://new-test-axkz.onrender.com")  # your Render URL
+WEBHOOK_HOST = os.getenv("WEBHOOK_URL", "https://new-test-axkz.onrender.com")  # твой Render URL
 
+# Инициализация Flask
 app = Flask(__name__)
 
-# Создаем Telegram Application (без запуска сервера)
+# Создаем Telegram Application
 bot_app = Application.builder().token(TOKEN).build()
 
 # Команда /start
@@ -33,7 +36,7 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("pay", pay))
 
-# Webhook endpoint для Telegram
+# Webhook endpoint
 @app.route(f"/{TOKEN}", methods=["POST"])
 async def telegram_webhook():
     data = request.get_json(force=True)
@@ -41,14 +44,16 @@ async def telegram_webhook():
     await bot_app.process_update(update)
     return "ok"
 
-# Render требует app.run() — без run_webhook!
+# Установка webhook и запуск Flask
 if __name__ == "__main__":
+    # Инициализация Telegram Application
     loop = asyncio.get_event_loop()
     loop.run_until_complete(bot_app.initialize())
 
-    # Установим webhook (можно один раз)
-    import requests
+    # Устанавливаем webhook
     webhook_url = f"{WEBHOOK_HOST}/{TOKEN}"
-    requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}")
+    response = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook", params={"url": webhook_url})
+    print("Webhook setup response:", response.text)
 
+    # Запускаем Flask
     app.run(host="0.0.0.0", port=10000)
