@@ -1,27 +1,28 @@
 from flask import Flask, request
 from telegram import Update, LabeledPrice
 from telegram.ext import Application, CommandHandler, ContextTypes
+import asyncio
 import os
 import requests
-import asyncio
 
-# Конфигурация
+# Переменные окружения
 TOKEN = os.getenv("BOT_TOKEN")
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER_TOKEN")
-WEBHOOK_HOST = os.getenv("WEBHOOK_URL", "https://new-test-axkz.onrender.com")  # заменишь на свой Render URL
+WEBHOOK_HOST = os.getenv("WEBHOOK_URL", "https://your-render-url.onrender.com")  # Замени на свой Render URL
 WEBHOOK_PATH = f"/{TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Flask
+# Инициализация Flask
 app = Flask(__name__)
 
-# Telegram bot application
+# Инициализация Telegram Application (асинхронный бот)
 bot_app = Application.builder().token(TOKEN).build()
 
-# Команды бота
+# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Нажми /pay чтобы оплатить.")
 
+# Команда /pay
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_invoice(
         title="Покупка",
@@ -29,29 +30,34 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payload="test_payload",
         provider_token=PAYMENT_PROVIDER,
         currency="KGS",
-        prices=[LabeledPrice("Товар", 10000)],
+        prices=[LabeledPrice("Товар", 10000)],  # 100.00 сом
         start_parameter="test-payment",
     )
 
+# Регистрируем команды
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("pay", pay))
 
-# Webhook endpoint
+# Обработка Telegram webhook
 @app.route(WEBHOOK_PATH, methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    asyncio.create_task(bot_app.process_update(update))
+    try:
+        update = Update.de_json(request.get_json(force=True), bot_app.bot)
+        asyncio.run(bot_app.process_update(update))
+    except Exception as e:
+        print("Ошибка при обработке вебхука:", e)
     return "ok"
 
-# Запуск
+# Установка webhook и запуск Flask
 if __name__ == "__main__":
-    # Асинхронная инициализация
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(bot_app.initialize())
-
-    # Устанавливаем webhook
-    response = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
+    # Устанавливаем webhook (можно делать каждый раз — Telegram не против)
+    response = requests.get(
+        f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    )
     print("Webhook setup response:", response.text)
 
-    # Запуск Flask-сервера
+    # Инициализируем Telegram application (асинхронно)
+    asyncio.run(bot_app.initialize())
+
+    # Flask run
     app.run(host="0.0.0.0", port=10000)
