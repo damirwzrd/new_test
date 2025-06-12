@@ -43,6 +43,10 @@ bot_app.add_handler(CommandHandler("pay", pay))
 def webhook():
     try:
         update = Update.de_json(request.get_json(force=True), bot_app.bot)
+        asyncio.run(bot_app.process_update(update))
+    except RuntimeError as e:
+        # asyncio.run нельзя вызывать если уже есть активный event loop (например, в Render)
+        print("Ошибка asyncio.run:", e)
         asyncio.create_task(bot_app.process_update(update))
     except Exception as e:
         print("Ошибка при обработке вебхука:", e)
