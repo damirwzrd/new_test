@@ -10,7 +10,7 @@ import threading
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=BOT_TOKEN)
 app = Flask(__name__)
 
 # Указываем 1 worker для асинхронных колбеков
