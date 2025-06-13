@@ -40,7 +40,7 @@ def pay(update, context):
     payload = "custom_payload"
     provider_token = "6586749549:LIVE:551874"
     currency = "UZS"
-    price = 30
+    price = 1000
 
     prices = [LabeledPrice("Товар", price * 100)]
 
