@@ -1,95 +1,107 @@
-import os
-import json
+import logging
+from uuid import uuid4
+from telegram import Update, LabeledPrice
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    PreCheckoutQueryHandler,
+    filters,
+)
 from flask import Flask, request
-import requests
+import threading
+import asyncio
+import hashlib
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")
+# 🔐 Замените своими токенами или используйте переменные окружения
+TOKEN = "ваш_Telegram_бот_TOKEN"
+PROVIDER_TOKEN = "ваш_FreedomPay_TEST_TOKEN"
+SECRET_KEY = "ваш_секретный_ключ"  # для проверки pg_sig
 
-WEBHOOK_PATH = f"/{BOT_TOKEN}"
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# Логгирование
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# Flask-приложение
+flask_app = Flask(__name__)
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
-    data = request.get_json()
-    print("🔔 Update:", json.dumps(data, indent=2, ensure_ascii=False))  # лог всех апдейтов
+@flask_app.route("/")
+def index():
+    return "OK"
 
-    # Сообщение от пользователя
-    if "message" in data:
-        message = data["message"]
-        chat_id = message["chat"]["id"]
+@flask_app.route("/result", methods=["POST"])
+def handle_callback():
+    data = request.form.to_dict()
+    received_sig = data.get("pg_sig", "")
+    script_name = "result"  # не включая .php
 
-        # Если успешный платёж
-        if "successful_payment" in message:
-            send_message(chat_id, "✅ Платёж прошёл успешно!")
+    # Удалим pg_sig перед сортировкой
+    data.pop("pg_sig", None)
 
-        # Команда /start
-        elif "text" in message and message["text"] == "/start":
-            send_message(chat_id, "Привет! Нажми кнопку для оплаты:", [
-                [{"text": "Оплатить 💳", "callback_data": "pay"}]
-            ])
+    # Отсортированные значения параметров
+    sorted_values = [data[key] for key in sorted(data)]
+    base_string = ";".join([script_name] + sorted_values + [SECRET_KEY])
+    calculated_sig = hashlib.md5(base_string.encode()).hexdigest()
 
-    # Нажатие на кнопку
-    elif "callback_query" in data:
-        callback = data["callback_query"]
-        chat_id = callback["message"]["chat"]["id"]
-        callback_id = callback["id"]
-        callback_data = callback["data"]
+    if calculated_sig == received_sig:
+        logger.info("✅ Подпись верна: %s", data)
+        return "OK"
+    else:
+        logger.warning("❌ Неверная подпись. Получено: %s, Ожидалось: %s", received_sig, calculated_sig)
+        return "invalid signature", 400
 
-        send_callback_answer(callback_id, "Обрабатываю...")
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=8000)
 
-        if callback_data == "pay":
-            send_invoice(chat_id)
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Введите /pay чтобы протестировать оплату через FreedomPay.")
 
-    # Предчекаут (до оплаты)
-    elif "pre_checkout_query" in data:
-        approve_checkout(data["pre_checkout_query"]["id"])
+# Команда /pay
+async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payload = f"freedompay-test-{uuid4()}"
+    prices = [LabeledPrice("Тестовый товар", 1000 * 100)]  # 1000 сомов
+    await context.bot.send_invoice(
+        chat_id=update.effective_chat.id,
+        title="FreedomPay Тестовая покупка",
+        description="Это тестовая оплата через FreedomPay",
+        payload=payload,
+        provider_token=PROVIDER_TOKEN,
+        currency="KGS",
+        prices=prices,
+        need_name=True,
+        is_flexible=False,
+    )
 
-    return "ok", 200
+# Обработка предварительной проверки оплаты
+async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    if not query.invoice_payload.startswith("freedompay-test-"):
+        await query.answer(ok=False, error_message="Ошибка проверки payload.")
+    else:
+        await query.answer(ok=True)
+        logger.info("✅ PreCheckout подтверждён.")
 
-# === Оплата ===
-def send_invoice(chat_id):
-    payload = {
-        "chat_id": chat_id,
-        "title": "Оплата подписки",
-        "description": "1 месяц доступа",
-        "payload": "sub_monthly_001",
-        "provider_token": PROVIDER_TOKEN,
-        "currency": "KZT",
-        "prices": [{"label": "Подписка", "amount": 10000}],  # 100 тенге
-        "start_parameter": "pay-subscription"
-    }
-    r = requests.post(f"{TELEGRAM_API_URL}/sendInvoice", json=payload)
-    print("📤 sendInvoice:", r.status_code, r.text)
+# Обработка успешной оплаты
+async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("✅ Оплата прошла успешно!")
+    await update.message.reply_text("✅ Спасибо! Оплата прошла успешно!")
 
-def approve_checkout(query_id):
-    payload = {
-        "pre_checkout_query_id": query_id,
-        "ok": True
-    }
-    r = requests.post(f"{TELEGRAM_API_URL}/answerPreCheckoutQuery", json=payload)
-    print("✅ preCheckout:", r.status_code, r.text)
+# Основной запуск
+async def main():
+    # Фоновый запуск Flask-сервера
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
-# === Утилиты ===
-def send_message(chat_id, text, reply_markup=None):
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = json.dumps({"inline_keyboard": reply_markup})
-    r = requests.post(f"{TELEGRAM_API_URL}/sendMessage", json=payload)
-    print("📤 sendMessage:", r.status_code, r.text)
+    # Telegram-бот
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("pay", pay))
+    application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
-def send_callback_answer(callback_query_id, text):
-    payload = {
-        "callback_query_id": callback_query_id,
-        "text": text,
-        "show_alert": False
-    }
-    r = requests.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", json=payload)
-    print("📤 callbackAnswer:", r.status_code, r.text)
+    await application.run_polling()
 
-# === Запуск ===
 if __name__ == "__main__":
-    print("🚀 Запуск Flask-сервера...")
-    app.run(host="0.0.0.0", port=5000)
+    asyncio.run(main())
