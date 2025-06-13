@@ -15,9 +15,9 @@ import asyncio
 import hashlib
 
 # 🔐 Замените своими токенами или используйте переменные окружения
-TOKEN = "ваш_Telegram_бот_TOKEN"
-PROVIDER_TOKEN = "ваш_FreedomPay_TEST_TOKEN"
-SECRET_KEY = "ваш_секретный_ключ"  # для проверки pg_sig
+TOKEN = "8057853656:AAEbcvA5wrfm980x3G1Ldn419MiAsoBQewQ"
+PROVIDER_TOKEN = "6450350554:LIVE:553348"
+SECRET_KEY = "4wCFV3XRNYXI6bOF"  # для проверки pg_sig
 
 # Логгирование
 logging.basicConfig(level=logging.INFO)
