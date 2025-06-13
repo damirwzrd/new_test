@@ -1,4 +1,3 @@
-import os
 import logging
 import requests
 from flask import Flask, request
@@ -6,17 +5,20 @@ from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
 import threading
 
-# === Конфигурация ===
-TOKEN = os.getenv("BOT_TOKEN") or '7963889304:AAHb-55yJ0y7NvwQqu6I8tIFcIQNCk3pMjQ'
-PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN") or '6450350554:LIVE:548841'
+# Устанавливаем уровень логирования
+logging.basicConfig(level=logging.DEBUG)
 
+TOKEN = '8057853656:AAEbcvA5wrfm980x3G1Ldn419MiAsoBQewQ'
 bot = Bot(token=TOKEN)
+
 app = Flask(__name__)
+
+# Указываем 1 worker для асинхронных колбеков
 dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 
+# Логирование информации
 logging.basicConfig(level=logging.INFO)
 
-# === Маршруты ===
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
@@ -28,7 +30,6 @@ def webhook():
 def index():
     return 'Бот работает!'
 
-# === Команды ===
 def start(update, context):
     update.message.reply_text("Привет! Введите /pay чтобы начать оплату.")
 
@@ -37,20 +38,23 @@ def pay(update, context):
     title = "FreedomPay Тест"
     description = "Оплата товара"
     payload = "custom_payload"
+    provider_token = "6450350554:LIVE:553348"
     currency = "KGS"
-    price = 1000  # 10 сомов
+    price = 1000
+
     prices = [LabeledPrice("Товар", price * 100)]
 
-    logging.info(f"Отправка инвойса: chat_id={chat_id}, price={price}")
+    logging.info(f"Отправка инвойса с параметрами: chat_id={chat_id}, title={title}, price={price}, provider_token={provider_token}")
+
     try:
         response = bot.send_invoice(
             chat_id, title, description, payload,
-            PROVIDER_TOKEN, currency, prices
+            provider_token, currency, prices
         )
-        logging.info(f"Ответ Telegram: {response}")
+        logging.info(f"Ответ на запрос: {response}")
     except Exception as e:
         logging.error(f"Ошибка при отправке инвойса: {e}")
-        update.message.reply_text(f"Ошибка: {e}")
+        update.message.reply_text(f"Произошла ошибка при отправке инвойса: {e}")
 
 def precheckout_callback(update, context):
     query = update.pre_checkout_query
@@ -60,15 +64,13 @@ def precheckout_callback(update, context):
         query.answer(ok=True)
 
 def successful_payment_callback(update, context):
-    update.message.reply_text("✅ Оплата прошла успешно!")
+    update.message.reply_text("Оплата прошла успешно!")
 
-# === Регистрация ===
 dispatcher.add_handler(CommandHandler('start', start))
 dispatcher.add_handler(CommandHandler('pay', pay))
 dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
 
-# === Запуск сервера ===
 def run_bot():
     app.run(host='0.0.0.0', port=5000)
 
