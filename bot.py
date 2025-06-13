@@ -72,7 +72,9 @@ dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
 
 def run_bot():
-    app.run(host='0.0.0.0', port=5000)
+    import os
+    PORT = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=PORT)
 
 if __name__ == "__main__":
     thread = threading.Thread(target=run_bot)
