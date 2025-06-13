@@ -7,7 +7,7 @@ from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, Me
 import threading
 
 # Загружаем токены из переменных окружения
-TOKEN = os.getenv("TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")
 
 bot = Bot(token=TOKEN)
