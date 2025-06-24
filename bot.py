@@ -38,9 +38,9 @@ def pay(update, context):
     title = "FreedomPay Тест"
     description = "Оплата товара"
     payload = "custom_payload"
-    provider_token = "6586749549:LIVE:551903"
-    currency = "UZS"
-    price = 3000
+    provider_token = "6450350554:LIVE:546214"
+    currency = "KGS"
+    price = 30
 
     prices = [LabeledPrice("Товар", price * 100)]
 
