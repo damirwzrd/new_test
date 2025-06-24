@@ -38,7 +38,7 @@ def pay(update, context):
     title = "FreedomPay Тест"
     description = "Оплата товара"
     payload = "custom_payload"
-    provider_token = "6586749549:LIVE:551874"
+    provider_token = "6586749549:LIVE:551903"
     currency = "UZS"
     price = 30
 
