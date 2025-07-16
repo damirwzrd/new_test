@@ -8,7 +8,7 @@ import threading
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.DEBUG)
 
-TOKEN = '8057853656:AAEbcvA5wrfm980x3G1Ldn419MiAsoBQewQ'
+TOKEN = '7930232744:AAGIwrgqeCdYxtBLA6F8UuyFCr4AWauDTU4'
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
