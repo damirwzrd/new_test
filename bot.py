@@ -1,5 +1,6 @@
 import logging
 import requests
+import os
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
@@ -8,7 +9,9 @@ import threading
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.DEBUG)
 
-TOKEN = '8079256873:AAEFfKaql6QyFR1em5epIJibCzwag-TaJAo'
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не задана")
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
