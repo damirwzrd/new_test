@@ -80,13 +80,3 @@ def run_bot():
 if __name__ == "__main__":
     thread = threading.Thread(target=run_bot)
     thread.start()
- куда надо вставить? это 
-
-import os
-from telegram import Bot
-
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("Переменная окружения BOT_TOKEN не задана")
-
-bot = Bot(token=TOKEN)
