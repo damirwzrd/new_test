@@ -1,6 +1,5 @@
 import logging
 import requests
-import os
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
