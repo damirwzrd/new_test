@@ -1,5 +1,3 @@
-вот код,
-
 import logging
 import requests
 import os
