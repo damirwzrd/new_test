@@ -1,3 +1,5 @@
+вот код,
+
 import logging
 import requests
 import os
@@ -9,9 +11,7 @@ import threading
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.DEBUG)
 
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("Переменная окружения BOT_TOKEN не задана")
+TOKEN = '8349004028:AAGhF0_ZaI6GNkGghN3BGSXiRf5T7gk5a1A'
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
@@ -82,3 +82,13 @@ def run_bot():
 if __name__ == "__main__":
     thread = threading.Thread(target=run_bot)
     thread.start()
+ куда надо вставить? это 
+
+import os
+from telegram import Bot
+
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не задана")
+
+bot = Bot(token=TOKEN)
