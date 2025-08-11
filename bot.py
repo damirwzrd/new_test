@@ -8,7 +8,7 @@ import threading
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.DEBUG)
 
-TOKEN = '8349004028:AAHbwW24YnULbvV_X983YIhOCdxYTjdS2Ao'
+TOKEN = '8074455416:AAFlCXatnVRGXaPw8OtgqejnAksLSVc1k9A'
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
@@ -38,7 +38,7 @@ def pay(update, context):
     title = "FreedomPay Тест"
     description = "Оплата товара"
     payload = "custom_payload"
-    provider_token = "6450350554:LIVE:548841"
+    provider_token = "6450350554:LIVE:560501"
     currency = "KGS"
     price = 30
 
