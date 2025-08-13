@@ -1,4 +1,5 @@
 import logging
+import os
 import requests
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
@@ -8,7 +9,7 @@ import threading
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.DEBUG)
 
-TOKEN = '8074455416:AAFlCXatnVRGXaPw8OtgqejnAksLSVc1k9A'
+TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
