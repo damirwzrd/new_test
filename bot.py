@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import requests
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
@@ -55,6 +56,22 @@ def precheckout_callback(update, context):
 
 def successful_payment_callback(update, context):
     update.message.reply_text("Оплата прошла успешно!")
+
+    # Данные об оплате
+    payment_info = update.message.successful_payment.to_dict()
+    payment_info["chat_id"] = update.message.chat_id
+    payment_info["custom_payload"] = update.message.successful_payment.invoice_payload
+
+    # Отправка POST-запроса на внешний вебхук
+    try:
+        resp = requests.post(
+            "https://webhook.site/3293b58b-a35a-4645-a175-2f5561ae0994",
+            json=payment_info,
+            timeout=5
+        )
+        logging.info(f"Коллбэк отправлен, код ответа: {resp.status_code}")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке коллбэка: {e}")
 
 # Регистрируем хэндлеры
 dispatcher.add_handler(CommandHandler('start', start))
