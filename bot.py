@@ -1,36 +1,28 @@
 import logging
 import os
-import requests
+import threading
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
-import threading
 
-# Устанавливаем уровень логирования
-logging.basicConfig(level=logging.DEBUG)
-
-TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=TOKEN)
-
-app = Flask(__name__)
-
-# Указываем 1 worker для асинхронных колбеков
-dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
-
-# Логирование информации
+# Логирование
 logging.basicConfig(level=logging.INFO)
 
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    logging.info("Обработан запрос от Telegram: %s", update)
-    return 'ok'
+# Получаем токен из переменных окружения
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN не задан в переменных окружения!")
 
-@app.route('/')
-def index():
-    return 'Бот работает!'
+# Инициализация бота
+bot = Bot(token=TOKEN)
 
+# Flask-приложение
+app = Flask(__name__)
+
+# Диспетчер для обработки апдейтов
+dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
+
+# ---------- Хэндлеры команд ----------
 def start(update, context):
     update.message.reply_text("Привет! Введите /pay чтобы начать оплату.")
 
@@ -45,14 +37,11 @@ def pay(update, context):
 
     prices = [LabeledPrice("Товар", price * 100)]
 
-    logging.info(f"Отправка инвойса с параметрами: chat_id={chat_id}, title={title}, price={price}, provider_token={provider_token}")
-
     try:
-        response = bot.send_invoice(
+        bot.send_invoice(
             chat_id, title, description, payload,
             provider_token, currency, prices
         )
-        logging.info(f"Ответ на запрос: {response}")
     except Exception as e:
         logging.error(f"Ошибка при отправке инвойса: {e}")
         update.message.reply_text(f"Произошла ошибка при отправке инвойса: {e}")
@@ -67,13 +56,35 @@ def precheckout_callback(update, context):
 def successful_payment_callback(update, context):
     update.message.reply_text("Оплата прошла успешно!")
 
+# Регистрируем хэндлеры
 dispatcher.add_handler(CommandHandler('start', start))
 dispatcher.add_handler(CommandHandler('pay', pay))
 dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
 
+# ---------- Вебхук ----------
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return 'ok'
+
+@app.route('/')
+def index():
+    return 'Бот работает!'
+
+@app.before_first_request
+def set_webhook():
+    render_url = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+    if not render_url:
+        logging.warning("RENDER_EXTERNAL_HOSTNAME не задан, вебхук не будет установлен.")
+        return
+    webhook_url = f"https://{render_url}/webhook"
+    success = bot.set_webhook(webhook_url)
+    logging.info(f"Вебхук установлен: {webhook_url} — {success}")
+
+# ---------- Запуск ----------
 def run_bot():
-    import os
     PORT = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=PORT)
 
