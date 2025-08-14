@@ -73,7 +73,6 @@ def webhook():
 def index():
     return 'Бот работает!'
 
-@app.before_first_request
 def set_webhook():
     render_url = os.getenv('RENDER_EXTERNAL_HOSTNAME')
     if not render_url:
@@ -89,5 +88,6 @@ def run_bot():
     app.run(host='0.0.0.0', port=PORT)
 
 if __name__ == "__main__":
+    set_webhook()  # Устанавливаем вебхук один раз при старте
     thread = threading.Thread(target=run_bot)
     thread.start()
