@@ -3,76 +3,91 @@ import os
 import threading
 from flask import Flask, request
 from telegram import Bot, Update, LabeledPrice
-from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
+from telegram.ext import (
+    Dispatcher, CommandHandler, MessageHandler, Filters,
+    PreCheckoutQueryHandler, ConversationHandler
+)
+import requests
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
 
-# Получаем токен из переменных окружения
+# Получаем токен из окружения
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("BOT_TOKEN не задан в переменных окружения!")
+    raise ValueError("BOT_TOKEN не задан в окружении!")
 
-# Инициализация бота
+# Инициализация бота и Flask
 bot = Bot(token=TOKEN)
-
-# Flask-приложение
 app = Flask(__name__)
-
-# Диспетчер для обработки апдейтов
 dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 
-# ---------- Хэндлеры команд ----------
+# Состояния диалога
+ENTER_AMOUNT = 1
+
+# ---------- Хэндлеры ----------
+
 def start(update, context):
-    update.message.reply_text("Привет! Введите /pay чтобы начать оплату.")
+    update.message.reply_text("Привет! Отправь /pay чтобы оплатить произвольную сумму.")
 
 def pay(update, context):
-    chat_id = update.message.chat_id
-    title = "FreedomPay Тест"
-    description = "Оплата товара"
-    payload = "custom_payload"
-    provider_token = "6450350554:LIVE:548841"
-    currency = "KGS"
-    price = 30
+    update.message.reply_text("💰 Введите сумму оплаты (не меньше 10 сом):")
+    return ENTER_AMOUNT
 
-    prices = [LabeledPrice("Товар", price * 100)]
-
+def handle_amount(update, context):
     try:
+        amount = int(update.message.text)
+        if amount < 10:
+            update.message.reply_text("❗ Минимальная сумма — 10 сом. Попробуйте снова.")
+            return ENTER_AMOUNT
+
+        chat_id = update.message.chat_id
+        title = "FreedomPay Тест"
+        description = f"Оплата {amount} сом"
+        payload = f"order_{chat_id}"
+        provider_token = "6450350554:LIVE:548841"
+        currency = "KGS"
+
+        prices = [LabeledPrice("Оплата через Telegram", amount * 100)]
+
         bot.send_invoice(
-            chat_id, title, description, payload,
-            provider_token, currency, prices
+            chat_id=chat_id,
+            title=title,
+            description=description,
+            payload=payload,
+            provider_token=provider_token,
+            currency=currency,
+            prices=prices
         )
+
+        return ConversationHandler.END
+
+    except ValueError:
+        update.message.reply_text("Введите сумму числом, например: 100")
+        return ENTER_AMOUNT
     except Exception as e:
-        logging.error(f"Ошибка при отправке инвойса: {e}")
-        update.message.reply_text(f"Произошла ошибка при отправке инвойса: {e}")
+        logging.error(f"Ошибка при создании инвойса: {e}")
+        update.message.reply_text(f"Ошибка при создании инвойса: {e}")
+        return ConversationHandler.END
+
 
 def precheckout_callback(update, context):
     query = update.pre_checkout_query
-    if query.invoice_payload != "custom_payload":
-        query.answer(ok=False, error_message="Что-то пошло не так...")
+    if not query.invoice_payload.startswith("order_"):
+        query.answer(ok=False, error_message="Ошибка проверки платежа.")
     else:
         query.answer(ok=True)
 
 def successful_payment_callback(update, context):
     payment = update.message.successful_payment
-
-    # Ответ пользователю
     update.message.reply_text("✅ Оплата прошла успешно! Спасибо 🙌")
 
-    # Преобразуем данные в словарь
     payment_data = payment.to_dict()
-
-    # Логируем все данные платежа в Render Logs
-    logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ ===")
+    logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ (TELEGRAM) ===")
     for key, value in payment_data.items():
         logging.info(f"{key}: {value}")
 
-    # Логируем пользователя
-    logging.info(f"Пользователь: {update.message.chat.username} (ID: {update.message.chat_id})")
-
-    # Отправляем данные о платеже на webhook.site
     try:
-        import requests
         response = requests.post(
             "https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8",
             json={
@@ -82,17 +97,25 @@ def successful_payment_callback(update, context):
             },
             timeout=5
         )
-        logging.info(f"Коллбэк отправлен: {response.status_code}")
+        logging.info(f"Webhook отправлен: {response.status_code}")
     except Exception as e:
-        logging.error(f"Ошибка при отправке данных коллбэка: {e}")
+        logging.error(f"Ошибка при отправке webhook: {e}")
 
-# Регистрируем хэндлеры
+# ---------- Регистрируем хэндлеры ----------
+
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler('pay', pay)],
+    states={ENTER_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, handle_amount)]},
+    fallbacks=[CommandHandler('pay', pay)]
+)
+
 dispatcher.add_handler(CommandHandler('start', start))
-dispatcher.add_handler(CommandHandler('pay', pay))
+dispatcher.add_handler(conv_handler)
 dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
 
-# ---------- Вебхук ----------
+# ---------- Flask ----------
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
@@ -112,12 +135,11 @@ def set_webhook():
     success = bot.set_webhook(webhook_url)
     logging.info(f"Вебхук установлен: {webhook_url} — {success}")
 
-# ---------- Запуск ----------
 def run_bot():
     PORT = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=PORT)
 
 if __name__ == "__main__":
-    set_webhook()  # Устанавливаем вебхук один раз при старте
+    set_webhook()
     thread = threading.Thread(target=run_bot)
     thread.start()
