@@ -54,7 +54,37 @@ def precheckout_callback(update, context):
         query.answer(ok=True)
 
 def successful_payment_callback(update, context):
-    update.message.reply_text("Оплата прошла успешно!")
+    payment = update.message.successful_payment
+
+    # Ответ пользователю
+    update.message.reply_text("✅ Оплата прошла успешно! Спасибо 🙌")
+
+    # Преобразуем данные в словарь
+    payment_data = payment.to_dict()
+
+    # Логируем все данные платежа в Render Logs
+    logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ ===")
+    for key, value in payment_data.items():
+        logging.info(f"{key}: {value}")
+
+    # Логируем пользователя
+    logging.info(f"Пользователь: {update.message.chat.username} (ID: {update.message.chat_id})")
+
+    # Отправляем данные о платеже на webhook.site
+    try:
+        import requests
+        response = requests.post(
+            "https://webhook.site/3293b58b-a35a-4645-a175-2f5561ae0994",
+            json={
+                "chat_id": update.message.chat_id,
+                "username": update.message.chat.username,
+                "payment": payment_data
+            },
+            timeout=5
+        )
+        logging.info(f"Коллбэк отправлен: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке данных коллбэка: {e}")
 
 # Регистрируем хэндлеры
 dispatcher.add_handler(CommandHandler('start', start))
