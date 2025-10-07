@@ -1,28 +1,21 @@
 import logging
 import os
 import threading
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
 
-# Логирование
+# ------------------- НАСТРОЙКА -------------------
 logging.basicConfig(level=logging.INFO)
-
-# Получаем токен из переменных окружения
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("BOT_TOKEN не задан в переменных окружения!")
 
-# Инициализация бота
 bot = Bot(token=TOKEN)
-
-# Flask-приложение
 app = Flask(__name__)
-
-# Диспетчер для обработки апдейтов
 dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 
-# ---------- Хэндлеры команд ----------
+# ------------------- ХЭНДЛЕРЫ -------------------
 def start(update, context):
     update.message.reply_text("Привет! Введите /pay чтобы начать оплату.")
 
@@ -37,11 +30,15 @@ def pay(update, context):
 
     prices = [LabeledPrice("Товар", price * 100)]
 
+    # В pg_result_url будет отправлен коллбэк от FreedomPay
+    result_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/freedompay/result"
+
     try:
         bot.send_invoice(
             chat_id, title, description, payload,
             provider_token, currency, prices
         )
+        logging.info(f"Создан инвойс для {chat_id} | result_url={result_url}")
     except Exception as e:
         logging.error(f"Ошибка при отправке инвойса: {e}")
         update.message.reply_text(f"Произошла ошибка при отправке инвойса: {e}")
@@ -55,56 +52,43 @@ def precheckout_callback(update, context):
 
 def successful_payment_callback(update, context):
     payment = update.message.successful_payment
-
-    # Ответ пользователю
-    update.message.reply_text("✅ Оплата прошла успешно! Спасибо 🙌")
-
-    # Преобразуем данные в словарь
+    update.message.reply_text("✅ Оплата прошла успешно!")
     payment_data = payment.to_dict()
-
-    # Логируем все данные платежа в Render Logs
-    logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ ===")
+    logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ (TELEGRAM) ===")
     for key, value in payment_data.items():
         logging.info(f"{key}: {value}")
 
-    # Логируем пользователя
-    logging.info(f"Пользователь: {update.message.chat.username} (ID: {update.message.chat_id})")
+# ------------------- ОБРАБОТКА FREEDOMPAY -------------------
+@app.route("/freedompay/result", methods=["POST"])
+def freedompay_result():
+    """Принимаем callback от FreedomPay"""
+    data = request.form.to_dict() or request.get_json(force=True, silent=True) or {}
+    logging.info("=== CALLBACK ОТ FREEDOMPAY ===")
+    for k, v in data.items():
+        logging.info(f"{k}: {v}")
 
-    # Отправляем данные о платеже на webhook.site
-    try:
-        import requests
-        response = requests.post(
-            "https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8",
-            json={
-                "chat_id": update.message.chat_id,
-                "username": update.message.chat.username,
-                "payment": payment_data
-            },
-            timeout=5
-        )
-        logging.info(f"Коллбэк отправлен: {response.status_code}")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке данных коллбэка: {e}")
+    # Например, ты можешь логировать payment_id, pg_payment_id и т.д.
+    payment_id = data.get("pg_payment_id")
+    status = data.get("pg_result")
 
-# Регистрируем хэндлеры
-dispatcher.add_handler(CommandHandler('start', start))
-dispatcher.add_handler(CommandHandler('pay', pay))
-dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
+    logging.info(f"FreedomPay result: payment_id={payment_id}, status={status}")
 
-# ---------- Вебхук ----------
-@app.route('/webhook', methods=['POST'])
+    # Возвращаем обязательный ответ (HTTP 200)
+    return jsonify({"status": "ok"}), 200
+
+# ------------------- ВЕБХУК ДЛЯ TELEGRAM -------------------
+@app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
-    return 'ok'
+    return "ok"
 
-@app.route('/')
+@app.route("/")
 def index():
-    return 'Бот работает!'
+    return "Бот работает!"
 
 def set_webhook():
-    render_url = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+    render_url = os.getenv("RENDER_EXTERNAL_HOSTNAME")
     if not render_url:
         logging.warning("RENDER_EXTERNAL_HOSTNAME не задан, вебхук не будет установлен.")
         return
@@ -112,12 +96,18 @@ def set_webhook():
     success = bot.set_webhook(webhook_url)
     logging.info(f"Вебхук установлен: {webhook_url} — {success}")
 
-# ---------- Запуск ----------
+# ------------------- РЕГИСТРАЦИЯ -------------------
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("pay", pay))
+dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
+
+# ------------------- ЗАПУСК -------------------
 def run_bot():
     PORT = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=PORT)
+    app.run(host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
-    set_webhook()  # Устанавливаем вебхук один раз при старте
+    set_webhook()
     thread = threading.Thread(target=run_bot)
     thread.start()
