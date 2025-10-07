@@ -54,71 +54,75 @@ def precheckout_callback(update, context):
 def successful_payment_callback(update, context):
     """После успешной оплаты в Telegram"""
     payment = update.message.successful_payment
-    update.message.reply_text("✅ Оплата прошла успешно!")
     payment_data = payment.to_dict()
 
+    update.message.reply_text("✅ Оплата прошла успешно!")
     logging.info("=== УСПЕШНЫЙ ПЛАТЁЖ (TELEGRAM) ===")
-    for key, value in payment_data.items():
-        logging.info(f"{key}: {value}")
+    for k, v in payment_data.items():
+        logging.info(f"{k}: {v}")
 
-    # Берём ID, который Telegram возвращает от провайдера
-    provider_payment_id = payment_data.get("provider_payment_charge_id")
-    if not provider_payment_id:
-        logging.warning("provider_payment_charge_id не найден — нельзя проверить статус в FreedomPay")
+    # Из Telegram
+    pg_order_id = payment_data.get("invoice_payload")       # твой order_id
+    pg_payment_id = payment_data.get("provider_payment_charge_id")  # ID от Telegram (у тебя это merchant_id)
+    total_amount = payment_data.get("total_amount")
+
+    if not FREEDOMPAY_SECRET:
+        logging.error("❌ FREEDOMPAY_SECRET не задан в окружении!")
         return
 
     try:
-        FREEDOMPAY_SECRET = os.getenv("FREEDOMPAY_SECRET")
-        MERCHANT_ID = os.getenv("FREEDOMPAY_MERCHANT_ID", "548841")
-
+        # === Параметры запроса ===
         params = {
-        "pg_merchant_id": str(MERCHANT_ID),
-        "pg_payment_id": str(provider_payment_id),  # ← приводим к строке
-        "pg_salt": "check123",
+            "pg_merchant_id": MERCHANT_ID,
+            "pg_order_id": pg_order_id,
+            "pg_payment_id": pg_payment_id,
+            "pg_salt": "check123"
         }
 
+        # === Подпись ===
         sorted_keys = sorted(params.keys())
-        sig_parts = ["get_status3.php"] + [params[k] for k in sorted_keys] + [FREEDOMPAY_SECRET]
+        sig_parts = ["get_status3.php"] + [str(params[k]) for k in sorted_keys] + [FREEDOMPAY_SECRET]
         sig_string = ";".join(sig_parts)
         pg_sig = hashlib.md5(sig_string.encode("utf-8")).hexdigest()
         params["pg_sig"] = pg_sig
 
+        logging.info(f"📦 Отправляем запрос в FreedomPay: {params}")
 
-        # Отправляем запрос в FreedomPay
-        resp = requests.post("https://api.freedompay.kg/get_status3.php", data=params, timeout=5)
+        # === Запрос ===
+        resp = requests.post("https://api.freedompay.kg/get_status3.php", data=params, timeout=10)
+        resp.encoding = "utf-8"
         resp_text = resp.text
-        logging.info("=== ОТВЕТ FREEDOMPAY ===")
+        logging.info("=== ОТВЕТ ОТ FREEDOMPAY ===")
         logging.info(resp_text)
 
-        # Парсим XML-ответ
-        import xml.etree.ElementTree as ET
+        # === Парсинг XML ===
         root = ET.fromstring(resp_text)
+        response_data = {child.tag: child.text for child in root}
 
-        pg_status = root.findtext("pg_status")
-        pg_payment_id = root.findtext("pg_payment_id")
-        pg_order_id = root.findtext("pg_order_id")
-        pg_amount = root.findtext("pg_amount")
-        pg_result = root.findtext("pg_result")
+        # === Логирование всех параметров ===
+        logging.info("=== РЕЗУЛЬТАТ СТАТУСА ПЛАТЕЖА ===")
+        for k, v in response_data.items():
+            logging.info(f"{k}: {v}")
 
-        logging.info(f"FreedomPay → status={pg_status}, payment_id={pg_payment_id}, order_id={pg_order_id}, amount={pg_amount}, result={pg_result}")
-
-        # Отправляем данные на твой webhook.site для наглядности
-        requests.post(
-            "https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8",
-            json={
-                "chat_id": update.message.chat.id,
-                "username": update.message.chat.username,
-                "pg_payment_id": pg_payment_id,
+        # === Отправка на webhook.site для контроля ===
+        try:
+            requests.post("https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8", json={
+                "telegram_chat_id": update.message.chat_id,
                 "pg_order_id": pg_order_id,
-                "pg_amount": pg_amount,
-                "pg_result": pg_result,
-                "pg_status": pg_status
-            },
-            timeout=5
-        )
+                "pg_payment_id": response_data.get("pg_payment_id"),
+                "pg_payment_status": response_data.get("pg_payment_status"),
+                "pg_amount": response_data.get("pg_amount"),
+                "pg_card_pan": response_data.get("pg_card_pan"),
+                "pg_card_token": response_data.get("pg_card_token"),
+                "pg_create_date": response_data.get("pg_create_date"),
+                "pg_captured": response_data.get("pg_captured"),
+            }, timeout=5)
+        except Exception as e:
+            logging.warning(f"Не удалось отправить webhook.site: {e}")
 
     except Exception as e:
         logging.error(f"Ошибка при запросе статуса FreedomPay: {e}")
+
 
 # ------------------- ОБРАБОТКА CALLBACK FREEDOMPAY -------------------
 @app.route("/freedompay/result", methods=["POST"])
