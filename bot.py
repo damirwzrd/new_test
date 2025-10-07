@@ -80,11 +80,12 @@ def successful_payment_callback(update, context):
         }
 
         # создаём подпись
-        sorted_params = sorted(params.items())
-        sig_string = ";".join(str(v) for k, v in sorted_params)
-        sig_string = f"get_status3.php;{sig_string};{FREEDOMPAY_SECRET}"
+        sorted_keys = sorted(params.keys())
+        sig_parts = ["get_status3.php"] + [str(params[k]) for k in sorted_keys] + [FREEDOMPAY_SECRET]
+        sig_string = ";".join(sig_parts)
         pg_sig = hashlib.md5(sig_string.encode("utf-8")).hexdigest()
         params["pg_sig"] = pg_sig
+
 
         # отправляем запрос
         resp = requests.post("https://api.freedompay.kg/get_status3.php", data=params, timeout=5)
