@@ -25,7 +25,7 @@ dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 # Состояния диалога
 ENTER_AMOUNT = 1
 
-# ---------- Хэндлеры Telegram ----------
+# ---------- Хэндлеры ----------
 
 def start(update, context):
     update.message.reply_text("Привет! Отправь /pay чтобы оплатить произвольную сумму.")
@@ -101,30 +101,7 @@ def successful_payment_callback(update, context):
     except Exception as e:
         logging.error(f"Ошибка при отправке webhook: {e}")
 
-# ---------- Новый маршрут: FreedomPay pg_result_url ----------
-
-@app.route('/freedompay/result', methods=['POST'])
-def freedompay_result():
-    """
-    Этот endpoint вызывается FreedomPay после оплаты.
-    Он должен возвращать HTTP 200, иначе FreedomPay будет пытаться повторно.
-    """
-    data = request.form.to_dict()
-    logging.info("=== CALLBACK от FreedomPay (pg_result_url) ===")
-    for key, value in data.items():
-        logging.info(f"{key}: {value}")
-
-    # Проверим статус
-    if data.get('pg_result') == '1':
-        logging.info(f"✅ Платёж успешен! ORDER_ID: {data.get('pg_order_id')} | PAYMENT_ID: {data.get('pg_payment_id')}")
-    else:
-        logging.warning(f"❌ Ошибка платежа! ORDER_ID: {data.get('pg_order_id')} | Статус: {data.get('pg_result')}")
-
-    # Всегда отвечаем 200 OK
-    return "OK", 200
-
-
-# ---------- Регистрируем хэндлеры Telegram ----------
+# ---------- Регистрируем хэндлеры ----------
 
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler('pay', pay)],
@@ -137,7 +114,7 @@ dispatcher.add_handler(conv_handler)
 dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
 
-# ---------- Flask webhook для Telegram ----------
+# ---------- Flask ----------
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
