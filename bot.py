@@ -21,6 +21,9 @@ bot = Bot(token=TOKEN)
 app = Flask(__name__)
 dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 
+# Хранилище pg_payment_id по пользователю
+user_payments = {}
+
 # ------------------- ХЭНДЛЕРЫ -------------------
 def start(update, context):
     update.message.reply_text("Привет! Введите /pay чтобы начать оплату.")
@@ -30,7 +33,7 @@ def pay(update, context):
     chat_id = update.message.chat_id
     title = "FreedomPay Тест"
     description = "Оплата товара"
-    payload = "custom_payload"
+    payload = f"order_{chat_id}"
     provider_token = "6450350554:LIVE:548841"
     currency = "KGS"
     price = 30
@@ -38,26 +41,23 @@ def pay(update, context):
     prices = [LabeledPrice("Товар", price * 100)]
 
     try:
-        bot.send_invoice(
-            chat_id, title, description, payload,
-            provider_token, currency, prices
-        )
-        logging.info(f"Создан инвойс для {chat_id}")
+        bot.send_invoice(chat_id, title, description, payload, provider_token, currency, prices)
+        logging.info(f"Создан инвойс для {chat_id} | order_id={payload}")
     except Exception as e:
         logging.error(f"Ошибка при отправке инвойса: {e}")
-        update.message.reply_text(f"Произошла ошибка при отправке инвойса: {e}")
+        update.message.reply_text(f"Ошибка при отправке инвойса: {e}")
 
 
 def precheckout_callback(update, context):
     query = update.pre_checkout_query
-    if query.invoice_payload != "custom_payload":
-        query.answer(ok=False, error_message="Что-то пошло не так...")
+    if not query.invoice_payload.startswith("order_"):
+        query.answer(ok=False, error_message="Некорректный заказ")
     else:
         query.answer(ok=True)
 
 
 def successful_payment_callback(update, context):
-    """После успешной оплаты в Telegram"""
+    """Срабатывает после успешной оплаты в Telegram"""
     payment = update.message.successful_payment
     update.message.reply_text("✅ Оплата прошла успешно!")
     payment_data = payment.to_dict()
@@ -66,57 +66,42 @@ def successful_payment_callback(update, context):
     for key, value in payment_data.items():
         logging.info(f"{key}: {value}")
 
-    provider_payment_id = payment_data.get("provider_payment_charge_id")
-    if not provider_payment_id:
-        logging.warning("provider_payment_charge_id не найден!")
+    chat_id = update.message.chat_id
+    order_id = payment_data.get("invoice_payload")
+
+    # Проверяем, есть ли pg_payment_id от FreedomPay
+    pg_payment_id = user_payments.get(chat_id)
+    if not pg_payment_id:
+        logging.warning(f"Для пользователя {chat_id} нет pg_payment_id — ждем callback от FreedomPay.")
         return
 
     # --- Запрашиваем статус у FreedomPay ---
     try:
         params = {
             "pg_merchant_id": MERCHANT_ID,
-            "pg_payment_id": provider_payment_id,
+            "pg_payment_id": pg_payment_id,
             "pg_salt": "check123",
         }
 
         # создаём подпись
         sorted_keys = sorted(params.keys())
-        sig_parts = ["get_status3.php"] + [str(params[k]) for k in sorted_keys] + [FREEDOMPAY_SECRET]
+        sig_parts = ["get_status3.php"] + [str(params[k] or "") for k in sorted_keys] + [FREEDOMPAY_SECRET]
         sig_string = ";".join(sig_parts)
         pg_sig = hashlib.md5(sig_string.encode("utf-8")).hexdigest()
         params["pg_sig"] = pg_sig
 
-
-        # отправляем запрос
         resp = requests.post("https://api.freedompay.kg/get_status3.php", data=params, timeout=5)
         resp_text = resp.text
         logging.info("=== ОТВЕТ FREEDOMPAY ===")
         logging.info(resp_text)
 
         # парсим XML
-        try:
-            root = ET.fromstring(resp_text)
-            pg_status = root.findtext("pg_status")
-            pg_payment_id = root.findtext("pg_payment_id")
-            pg_order_id = root.findtext("pg_order_id")
-            pg_amount = root.findtext("pg_amount")
-            pg_result = root.findtext("pg_result")
+        root = ET.fromstring(resp_text)
+        pg_status = root.findtext("pg_status")
+        pg_result = root.findtext("pg_result")
+        pg_amount = root.findtext("pg_amount")
 
-            logging.info(f"FreedomPay → status={pg_status}, payment_id={pg_payment_id}, order_id={pg_order_id}, amount={pg_amount}, result={pg_result}")
-
-            # отправим эти данные на webhook.site
-            requests.post("https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8", json={
-                "chat_id": update.message.chat_id,
-                "username": update.message.chat.username,
-                "pg_payment_id": pg_payment_id,
-                "pg_order_id": pg_order_id,
-                "pg_amount": pg_amount,
-                "pg_result": pg_result,
-                "pg_status": pg_status
-            }, timeout=5)
-
-        except Exception as e:
-            logging.error(f"Ошибка при парсинге XML: {e}")
+        logging.info(f"FreedomPay → status={pg_status}, result={pg_result}, amount={pg_amount}")
 
     except Exception as e:
         logging.error(f"Ошибка при запросе get_status3.php: {e}")
@@ -130,6 +115,18 @@ def freedompay_result():
     logging.info("=== CALLBACK ОТ FREEDOMPAY ===")
     for k, v in data.items():
         logging.info(f"{k}: {v}")
+
+    pg_payment_id = data.get("pg_payment_id")
+    pg_order_id = data.get("pg_order_id")
+
+    if pg_payment_id and pg_order_id:
+        try:
+            chat_id = int(pg_order_id.replace("order_", ""))
+            user_payments[chat_id] = pg_payment_id
+            logging.info(f"Связка: chat_id={chat_id} → pg_payment_id={pg_payment_id}")
+        except Exception:
+            pass
+
     return jsonify({"status": "ok"}), 200
 
 
@@ -161,6 +158,7 @@ dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("pay", pay))
 dispatcher.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 dispatcher.add_handler(MessageHandler(Filters.successful_payment, successful_payment_callback))
+
 
 # ------------------- ЗАПУСК -------------------
 def run_bot():
