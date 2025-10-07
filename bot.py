@@ -1,6 +1,9 @@
 import logging
 import os
 import threading
+import hashlib
+import requests
+import xml.etree.ElementTree as ET
 from flask import Flask, request, jsonify
 from telegram import Bot, Update, LabeledPrice
 from telegram.ext import Dispatcher, CommandHandler, PreCheckoutQueryHandler, MessageHandler, Filters
@@ -10,8 +13,17 @@ logging.basicConfig(level=logging.INFO)
 
 # ------------------- НАСТРОЙКИ -------------------
 TOKEN = os.getenv("BOT_TOKEN")
+FREEDOMPAY_SECRET = os.getenv("FREEDOMPAY_SECRET")
+MERCHANT_ID = os.getenv("MERCHANT_ID")
+
 if not TOKEN:
     raise ValueError("BOT_TOKEN не задан в переменных окружения!")
+
+if not FREEDOMPAY_SECRET:
+    logging.warning("⚠ FREEDOMPAY_SECRET не задан — запрос к get_status3 может не пройти!")
+
+if not MERCHANT_ID:
+    logging.warning("⚠ MERCHANT_ID не задан — запрос к get_status3 может не пройти!")
 
 bot = Bot(token=TOKEN)
 app = Flask(__name__)
@@ -53,6 +65,8 @@ def precheckout_callback(update, context):
 
 def successful_payment_callback(update, context):
     """После успешной оплаты в Telegram"""
+    global FREEDOMPAY_SECRET, MERCHANT_ID  # <<< добавлено
+
     payment = update.message.successful_payment
     payment_data = payment.to_dict()
 
@@ -62,12 +76,12 @@ def successful_payment_callback(update, context):
         logging.info(f"{k}: {v}")
 
     # Из Telegram
-    pg_order_id = payment_data.get("invoice_payload")       # твой order_id
-    pg_payment_id = payment_data.get("provider_payment_charge_id")  # ID от Telegram (у тебя это merchant_id)
+    pg_order_id = payment_data.get("invoice_payload")  # твой order_id
+    pg_payment_id = payment_data.get("provider_payment_charge_id")  # ID от Telegram
     total_amount = payment_data.get("total_amount")
 
-    if not FREEDOMPAY_SECRET:
-        logging.error("❌ FREEDOMPAY_SECRET не задан в окружении!")
+    if not FREEDOMPAY_SECRET or not MERCHANT_ID:
+        logging.error("❌ FREEDOMPAY_SECRET или MERCHANT_ID не заданы в окружении!")
         return
 
     try:
@@ -124,7 +138,7 @@ def successful_payment_callback(update, context):
         logging.error(f"Ошибка при запросе статуса FreedomPay: {e}")
 
 
-# ------------------- ОБРАБОТКА CALLBACK FREEDOMPAY -------------------
+# ------------------- CALLBACK FREEDOMPAY -------------------
 @app.route("/freedompay/result", methods=["POST"])
 def freedompay_result():
     """Коллбэк от FreedomPay (pg_result_url)"""
@@ -143,7 +157,7 @@ def freedompay_result():
     # Логируем основное
     logging.info(f"FreedomPay callback → payment_id={pg_payment_id}, order_id={pg_order_id}, result={pg_result}")
 
-    # Можно также опционально уведомить пользователя
+    # Можно также уведомить пользователя
     try:
         if pg_result == "1" and pg_order_id and pg_order_id.startswith("order_"):
             chat_id = int(pg_order_id.replace("order_", ""))
@@ -151,7 +165,6 @@ def freedompay_result():
     except Exception as e:
         logging.warning(f"Ошибка при уведомлении пользователя: {e}")
 
-    # Возвращаем OK (обязательно!)
     return jsonify({"status": "ok"}), 200
 
 
