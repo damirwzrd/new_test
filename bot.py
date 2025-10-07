@@ -74,7 +74,7 @@ def successful_payment_callback(update, context):
     try:
         import requests
         response = requests.post(
-            "https://webhook.site/3293b58b-a35a-4645-a175-2f5561ae0994",
+            "https://webhook.site/0460c9db-b629-49f3-90eb-e9ed90b73be8",
             json={
                 "chat_id": update.message.chat_id,
                 "username": update.message.chat.username,
