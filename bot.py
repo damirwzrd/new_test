@@ -72,17 +72,17 @@ def successful_payment_callback(update, context):
         MERCHANT_ID = os.getenv("FREEDOMPAY_MERCHANT_ID", "548841")
 
         params = {
-            "pg_merchant_id": MERCHANT_ID,
-            "pg_payment_id": provider_payment_id,
-            "pg_salt": "random_salt_123",
+        "pg_merchant_id": str(MERCHANT_ID),
+        "pg_payment_id": str(provider_payment_id),  # ← приводим к строке
+        "pg_salt": "check123",
         }
 
-        # Формируем подпись
         sorted_keys = sorted(params.keys())
-        sig_parts = ["get_status3.php"] + [str(params[k]) for k in sorted_keys] + [FREEDOMPAY_SECRET]
+        sig_parts = ["get_status3.php"] + [params[k] for k in sorted_keys] + [FREEDOMPAY_SECRET]
         sig_string = ";".join(sig_parts)
         pg_sig = hashlib.md5(sig_string.encode("utf-8")).hexdigest()
         params["pg_sig"] = pg_sig
+
 
         # Отправляем запрос в FreedomPay
         resp = requests.post("https://api.freedompay.kg/get_status3.php", data=params, timeout=5)
