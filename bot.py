@@ -87,28 +87,27 @@ def successful_payment_callback(update, context):
     for key, value in payment_data.items():
         logging.info(f"{key}: {value}")
 
-    # 👇👇👇 Уведомление администратора
-    ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))  # задается в переменных окружения
-    if ADMIN_CHAT_ID:
+    # --- Отправляем уведомление в канал ---
+    channel_id = os.getenv("CHANNEL_ID")
+    if channel_id:
         try:
-            amount = payment_data.get("total_amount", 0) / 100
-            user = update.message.chat.username or update.message.chat.first_name
             bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
+                chat_id=channel_id,
                 text=(
-                    f"💳 Получена оплата!\n\n"
-                    f"👤 Пользователь: @{user}\n"
-                    f"💰 Сумма: {amount} KGS\n"
-                    f"🧾 Payload: {payment_data.get('invoice_payload')}"
-                )
+                    f"💸 *Поступила оплата!*\n"
+                    f"👤 Пользователь: @{update.message.chat.username or 'Без ника'}\n"
+                    f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
+                    f"🧾 ID заказа: {payment.invoice_payload}"
+                ),
+                parse_mode="Markdown"
             )
-            logging.info(f"✅ Уведомление админу ({ADMIN_CHAT_ID}) отправлено")
+            logging.info("Уведомление отправлено в канал")
         except Exception as e:
-            logging.error(f"Ошибка при уведомлении администратора: {e}")
+            logging.error(f"Ошибка при отправке в канал: {e}")
     else:
-        logging.warning("ADMIN_CHAT_ID не задан — уведомление админу не отправлено.")
+        logging.warning("CHANNEL_ID не задан")
 
-    # 👇 остальная часть без изменений
+    # --- Отправка вебхука (если нужно) ---
     try:
         response = requests.post(
             "https://webhook.site/bcc90182-b9ab-4e13-a12a-ec7432ba37f1",
@@ -122,7 +121,6 @@ def successful_payment_callback(update, context):
         logging.info(f"Webhook отправлен: {response.status_code}")
     except Exception as e:
         logging.error(f"Ошибка при отправке webhook: {e}")
-
 
 # ---------- Регистрируем хэндлеры ----------
 
